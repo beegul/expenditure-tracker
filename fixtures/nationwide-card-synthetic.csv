@@ -1,0 +1,4 @@
+Date,Description,Amount,Transaction ID
+16/10/2026,Example furniture,120.00,CARD-SYN-1
+20/10/2026,Example refund,-20.00,CARD-SYN-2
+22/10/2026,Example card repayment,-200.00,CARD-SYN-3

@@ -1,0 +1,15 @@
+{
+  "name": "expenditure-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "build": "node scripts/build.js",
+    "test": "node --test tests/*.test.js",
+    "check": "node --check src/domain.js && node --check src/app.js && npm test && npm run build",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": { "@playwright/test": "^1.56.1" },
+  "engines": { "node": ">=20" }
+}
