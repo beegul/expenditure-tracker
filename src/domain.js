@@ -22,7 +22,15 @@ export function dateISO(value) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) parts = s.split('-').map(Number);
   else if (/^\d{2}[/-]\d{2}[/-]\d{4}$/.test(s)) {
     const [d, m, y] = s.split(/[/-]/).map(Number); parts = [y, m, d];
-  } else throw new Error('Date must be DD/MM/YYYY or YYYY-MM-DD.');
+  } else {
+    const match = /^(\d{1,2})[\s-]+([A-Za-z]{3,9})[\s,-]+(\d{4})$/.exec(s);
+    if (!match) throw new Error('Date must be DD/MM/YYYY, YYYY-MM-DD or DD MMM YYYY.');
+    const month = match[2].slice(0, 3).toLowerCase();
+    const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    const monthIndex = months.indexOf(month);
+    if (monthIndex < 0) throw new Error('Date contains an unknown month.');
+    parts = [Number(match[3]), monthIndex + 1, Number(match[1])];
+  }
   const [y, m, d] = parts;
   if (y < 1900 || y > 2200 || m < 1 || m > 12 || d < 1 || d > new Date(Date.UTC(y, m, 0)).getUTCDate()) throw new Error('Invalid calendar date.');
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -151,7 +159,7 @@ function parseCSVRecords(text) {
 const normaliseHeader = value => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const aliases = {
   date: ['date', 'transaction date', 'date of transaction', 'posted date', 'posting date', 'when'],
-  description: ['description', 'transaction description', 'transaction details', 'details', 'merchant', 'payee', 'narrative', 'who'],
+  description: ['description', 'transaction', 'transactions', 'transaction description', 'transaction details', 'details', 'merchant', 'payee', 'narrative', 'who'],
   amount: ['amount', 'transaction amount', 'amount gbp'],
   debit: ['paid out', 'debit', 'money out', 'withdrawal', 'debit amount'],
   credit: ['paid in', 'credit', 'money in', 'deposit', 'credit amount'],
@@ -166,7 +174,19 @@ function mapHeaders(headers) {
   }
   return { mapping, ambiguous };
 }
-export function inspectCSV(text) {
+export function inferAccount(records, filename = '') {
+  const metadata = records.slice(0, 50).flatMap(record => {
+    const label = normaliseHeader(record.fields[0] || '');
+    return label === 'account name' && record.fields[1] ? [record.fields[1].toLowerCase()] : [];
+  }).join(' ');
+  const source = `${metadata} ${filename.toLowerCase()}`;
+  if (/american express|\bamex\b/.test(source)) return 'amex';
+  if (/\bnationwide\b/.test(source) && /credit\s*card|\bcredit\b/.test(source)) return 'credit';
+  if (/\bnationwide\b/.test(source) && /\bjoint\b/.test(source)) return 'joint';
+  if (/\bnationwide\b/.test(source) && /\bpersonal\b/.test(source)) return 'personal';
+  return null;
+}
+export function inspectCSV(text, { filename = '' } = {}) {
   const records = parseCSVRecords(text);
   const candidates = records.slice(0, 50).flatMap((record, index) => {
     const headers = record.fields.map(s => s.trim()), { mapping, ambiguous } = mapHeaders(headers);
@@ -193,6 +213,7 @@ export function inspectCSV(text) {
     headerLine: selected.line,
     firstLine: rows[0]?.line ?? selected.line + 1,
     automatic: mapping.automatic,
+    inferredAccountId: inferAccount(records.slice(0, selected.index), filename),
     candidateHeaders: tied.map(c => ({ line: c.line, headers: c.headers }))
   };
 }

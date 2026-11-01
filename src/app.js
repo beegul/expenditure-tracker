@@ -95,16 +95,22 @@ function reviewPage() {
 }
 function imports() {
   return pageHeader('Bring your statements together', 'CSV only. Your file is read on this device and never uploaded.') +
-    `<section class="import-layout"><div class="section"><h2>Choose a statement</h2><p>Choose the account the statement belongs to, then select your CSV. Familiar date, description and amount columns are detected automatically, including Nationwide files with account details before the transaction table.</p><label>Paying account <select id="import-account">${state.accounts.map(a => option(a.id, `${a.name} (${a.kind})`, imports.account || 'personal')).join('')}</select></label><label>Amount convention <select id="convention">${option('provider', 'Provider default', imports.convention || 'provider')}${option('in-positive', 'Signed amount: credits positive', imports.convention || 'provider')}${option('out-positive', 'Signed amount: charges positive', imports.convention || 'provider')}</select></label><label class="file-field">Choose CSV <input id="csv-file" type="file" accept=".csv,text/csv"></label><p class="footnote">DD/MM/YYYY or YYYY-MM-DD dates, comma-separated UTF-8 CSV, GBP amounts. Check normalized signs and duplicate decisions against your statement. OFX / Excel are not supported: export CSV instead.</p></div><aside class="import-notes"><h2>After choosing a file</h2><ol><li>Confirm the account and amount direction.</li><li>Check the detected transaction columns and preview.</li><li>Review any duplicate decisions and row errors.</li><li>Import, then confirm classifications in the review queue.</li></ol><p>Transfers and card repayments are not purchases. Joint-funded card repayments stay visibly unresolved until funding is reconciled explicitly.</p></aside></section>
-    ${csv ? `<section class="section"><div class="section-heading"><div><h2>${csv.mapping.automatic && !csv.showMapping ? 'Transaction columns detected' : 'Check transaction columns'}</h2><p>Found the transaction table on row ${csv.headerLine}; ignored earlier account details${csv.rows.length ? ` and read ${csv.rows.length} transaction row(s)` : ''}.</p></div>${csv.mapping.automatic && !csv.showMapping ? '<button data-action="adjust-mapping">Adjust detected columns</button>' : ''}</div>${csv.candidateHeaders.length > 1 ? `<div class="banner">More than one row looks like a transaction header (rows ${csv.candidateHeaders.map(c => c.line).join(', ')}). Confirm the columns below before using this preview.</div>` : ''}
-    ${csv.mapping.automatic && !csv.showMapping ? `<div class="detected-columns"><span>Date <strong>${esc(csv.headers[csv.mapping.date])}</strong></span><span>Description <strong>${esc(csv.headers[csv.mapping.description])}</strong></span><span>${csv.mapping.amount >= 0 ? 'Amount' : 'Debit / credit'} <strong>${esc(csv.mapping.amount >= 0 ? csv.headers[csv.mapping.amount] : `${csv.headers[csv.mapping.debit]} / ${csv.headers[csv.mapping.credit]}`)}</strong></span></div>` : `<p>Match the date, description and amount columns. Do not select a payment reference as a transaction ID; unique IDs are detected only from explicitly labelled transaction ID columns.</p><div class="mapping">${['date', 'description', 'amount', 'debit', 'credit', 'reference'].map(name => `<label>${({ debit: 'Paid out', credit: 'Paid in', reference: 'Unique transaction ID' })[name] || name}<select data-map="${name}">${option('-1', 'Not used', String(csv.mapping[name]))}${csv.headers.map((h, i) => option(String(i), h || `Column ${i + 1}`, String(csv.mapping[name]))).join('')}</select></label>`).join('')}</div><button class="primary" data-action="preview">Build import preview</button>`}</section>` : ''}
-    ${preview ? previewHTML() : ''}`;
+    `<section class="import-layout"><div class="section import-main"><h2>Add a statement</h2><p>Choose or drop a CSV. We’ll read the transactions and show what we found before adding them.</p><label class="file-field" id="csv-drop"><span>Choose CSV file · or drop it here</span><input id="csv-file" type="file" accept=".csv,text/csv"></label><p class="footnote">CSV only. Your file stays in this browser; it is not uploaded.</p></div></section>
+    ${csv && !csv.inferredAccountId && !imports.account ? `<section class="section narrow account-question"><h2>Which account is this from?</h2><p>This file doesn't say whether it came from your personal or joint account. Choose the account printed on the statement.</p><label>Statement account <select id="import-account"><option value="">Choose account</option>${state.accounts.map(a => option(a.id, a.name, '')).join('')}</select></label></section>` : ''}
+    ${csv && (csv.inferredAccountId || imports.account) ? `<p class="detected-account">Statement account: <strong>${esc(accountName(csv.inferredAccountId || imports.account))}</strong>${csv.inferredAccountId ? ' · detected from the statement' : ' · selected by you'}</p>` : ''}
+    ${csv && (csv.inferredAccountId || imports.account) ? `<section class="section"><div class="section-heading"><div><h2>${csv.mapping.automatic && !csv.showMapping ? 'Statement read' : 'Check statement format'}</h2><p>Found ${csv.rows.length} transaction row(s)${csv.candidateHeaders.length > 1 ? '; several possible table headers need confirmation' : ''}.</p></div>${csv.mapping.automatic && !csv.showMapping ? '<button data-action="adjust-mapping">Advanced: change columns</button>' : ''}</div>${csv.candidateHeaders.length > 1 ? `<div class="banner">More than one row looks like a transaction header (rows ${csv.candidateHeaders.map(c => c.line).join(', ')}). Confirm the columns below before using this preview.</div>` : ''}
+    ${csv.mapping.automatic && !csv.showMapping ? '' : `<p>This CSV needs a quick format check. Match the date, description and amount columns; a payment reference is not assumed to be a unique transaction ID.</p><div class="mapping">${['date', 'description', 'amount', 'debit', 'credit'].map(name => `<label>${({ debit: 'Paid out', credit: 'Paid in' })[name] || name}<select data-map="${name}">${option('-1', 'Not used', String(csv.mapping[name]))}${csv.headers.map((h, i) => option(String(i), h || `Column ${i + 1}`, String(csv.mapping[name]))).join('')}</select></label>`).join('')}</div><details class="advanced-import"><summary>Advanced options</summary><label>Amount sign <select id="convention">${option('provider', 'Provider default', imports.convention || 'provider')}${option('in-positive', 'Credits positive', imports.convention || 'provider')}${option('out-positive', 'Charges positive', imports.convention || 'provider')}</select></label></details><button class="primary" data-action="preview">Show transactions</button>`}</section>` : ''}
+    ${csv && !csv.inferredAccountId && !imports.account ? '' : preview ? previewHTML() : ''}`;
 }
 function previewHTML() {
   const newCount = preview.candidates.filter(t => !t.duplicate).length;
-  return `<section class="section"><div class="section-heading"><h2>Import preview</h2><span>${newCount} new · ${preview.candidates.length - newCount} overlapping · ${preview.errors.length} errors</span></div>${preview.errors.length ? `<div class="validation" role="alert"><strong>Fix the source CSV or mapping, then rebuild the preview.</strong><ul>${preview.errors.map(e => `<li>Row ${e.row}: ${esc(e.message)}</li>`).join('')}</ul></div>` : ''}
-    ${preview.ambiguous ? '<div class="banner">No unique IDs on some rows. Overlaps are matched by account, date, exact normalised description, amount and occurrence count. Identical purchases within one file stay separate. Partial overlapping files cannot prove whether an identical row is the same purchase: check skipped rows and explicitly keep any genuinely new occurrence.</div>' : ''}
-    <div class="table-wrap"><table><caption class="sr-only">Normalized import preview</caption><thead><tr><th>Date</th><th>Description</th><th class="number">Normalized movement</th><th>Initial review</th><th>Duplicate decision</th></tr></thead><tbody>${preview.candidates.map((t, i) => `<tr><td>${esc(t.date)}</td><td>${esc(t.description)}</td><td class="number">${money(t.amount)}</td><td>${esc(t.type === 'purchase' ? t.suggestion.confidence : 'Cash movement: confirm type')}</td><td>${t.duplicate ? t.hasReference ? 'Skipped: same unique ID' : `<label><input type="checkbox" data-keep="${i}"> Keep as genuinely new</label>` : 'New transaction'}</td></tr>`).join('')}</tbody></table></div><label class="ack"><input id="import-ack" type="checkbox"> I checked account, signs and duplicate decisions against my statement.</label><button class="primary" data-action="accept"${preview.errors.length || !preview.candidates.length ? ' disabled' : ''}>Import reviewed rows</button></section>`;
+  const duplicates = preview.candidates.length - newCount;
+  const reviews = preview.candidates.filter(t => t.type === 'unresolved-movement' || (t.type === 'purchase' && t.suggestion.share === null)).length;
+  return `<section class="section"><div class="section-heading"><div><h2>Transactions found</h2><p>${newCount} to add${duplicates ? ` · ${duplicates} possible repeats skipped` : ''}${reviews ? ` · ${reviews} may need classification` : ''}</p></div><span class="tag ${preview.errors.length ? 'pending' : 'household'}">${preview.errors.length ? `${preview.errors.length} row(s) need attention` : 'Ready to review'}</span></div>
+    ${preview.errors.length ? `<div class="validation" role="alert"><strong>Some rows couldn’t be read. Correct the statement format or check the row details below before adding transactions.</strong><ul>${preview.errors.map(e => `<li>Row ${e.row}: ${esc(e.message)}</li>`).join('')}</ul></div>` : ''}
+    ${preview.ambiguous && duplicates ? '<div class="banner">Possible repeats are skipped by default. Check each highlighted row against your statement; tick “Add anyway” only if it is a separate purchase. Identical purchases within this file are kept as separate rows.</div>' : ''}
+    <div class="table-wrap"><table><caption class="sr-only">Transactions found in the selected statement</caption><thead><tr><th>Date</th><th>Description</th><th class="number">Amount</th><th>Review</th>${duplicates ? '<th>Repeat?</th>' : ''}</tr></thead><tbody>${preview.candidates.map((t, i) => `<tr class="${t.duplicate ? 'unresolved' : ''}"><td>${esc(t.date)}</td><td>${esc(t.description)}</td><td class="number">${money(t.amount)}</td><td>${esc(t.type === 'purchase' ? t.suggestion.share === null ? 'Confirm personal / household share' : 'Suggested from your history' : 'Confirm transaction type')}</td>${duplicates ? `<td>${t.duplicate ? t.hasReference ? 'Same transaction ID' : `<label><input type="checkbox" data-keep="${i}"> Add anyway</label>` : 'New'}</td>` : ''}</tr>`).join('')}</tbody></table></div>
+    <label class="ack"><input id="import-ack" type="checkbox"> I’ve checked this preview against my statement.</label><button id="accept-import" class="primary" data-action="accept" data-count="${newCount}"${preview.errors.length || !newCount ? ' disabled' : ''}>Add ${newCount} transaction${newCount === 1 ? '' : 's'} to ledger</button></section>`;
 }
 function settings() {
   return pageHeader('Your data, your device', 'Account setup, payday periods and portable backups.') +
@@ -121,6 +127,13 @@ function render() {
   app.innerHTML = `<div class="shell"><aside class="sidebar"><a class="brand" href="#" data-action="nav" data-view="month"><span class="brand-mark">c.</span><span>commonplace<small>Expenditure, understood.</small></span></a><nav aria-label="Main navigation">${nav.map(([id, title, icon]) => `<button data-action="nav" data-view="${id}" class="${view === id ? 'active' : ''}"${view === id ? ' aria-current="page"' : ''}><span aria-hidden="true">${icon}</span>${title}</button>`).join('')}</nav><div class="sidebar-bottom"><span class="local-dot"></span> Local to this browser<p>No bank connection.<br>No financial data uploads.</p><button data-action="export">Export backup</button><button class="demo-button" data-action="demo">${isDemo ? 'Return to my ledger' : 'Explore fictional demo'}</button></div></aside><main id="main"><div class="topline"><span>Personal & household expenditure</span><span>${isDemo ? 'Fictional demo · not saved' : 'Private · on this device'}</span></div>${isDemo ? '<div class="demo-banner"><strong>You are exploring fictional data.</strong> Changes stay in this demo and never touch your ledger. <button data-action="demo">Return to my ledger</button></div>' : ''}${({ month: monthly, trends, settlement: settlements, import: imports, review: reviewPage, settings })[view]()}</main></div>`;
 }
 function openDialog(html) { dialog.innerHTML = html; dialog.showModal(); }
+async function readCSVFile(file) {
+  if (file.size > 10 * 1024 * 1024) throw new Error('CSV exceeds 10 MB. Export a smaller date range.');
+  csv = inspectCSV(await file.text(), { filename: file.name });
+  imports.account = csv.inferredAccountId || null;
+  preview = csv.mapping.automatic && imports.account ? previewImport(state, csv, imports.account, csv.mapping, imports.convention || 'provider') : null;
+  render();
+}
 function formShell(title, body, button = 'Save changes', id = 'transaction-form') {
   return `<form id="${id}"><div class="dialog-heading"><h2>${title}</h2><button type="button" data-action="close" aria-label="Close dialog">×</button></div>${body}<p class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" data-action="close">Cancel</button><button class="primary">${button}</button></div></form>`;
 }
@@ -187,14 +200,17 @@ document.addEventListener('click', e => {
       const t = state.transactions.find(t => t.id === dialog.querySelector('[name=id]').value), h = suggestion(state, t.description);
       dialog.querySelector('[name=share]').value = h.share === 0 || h.share === 100 ? String(h.share) : 'split';
       dialog.querySelector('[name=split]').value = h.share; dialog.querySelector('[name=category]').value = h.category; syncEditor();
-    } else if (action === 'preview') { preview = previewImport(state, csv, imports.account || 'personal', csv.mapping, imports.convention || 'provider'); render(); }
+    }     else if (action === 'preview') { preview = previewImport(state, csv, imports.account || csv.inferredAccountId, csv.mapping, imports.convention || 'provider'); render(); }
     else if (action === 'adjust-mapping') { csv.showMapping = true; preview = null; render(); }
     else if (action === 'accept') {
       if (!document.querySelector('#import-ack').checked) throw new Error('Check account, signs and duplicate decisions, then confirm the checkbox.');
       const p = structuredClone(preview);
       document.querySelectorAll('[data-keep]:checked').forEach(input => { const t = p.candidates[Number(input.dataset.keep)]; t.duplicate = false; t.importKey += `:confirmed-new:${uid()}`; });
       const count = p.candidates.filter(t => !t.duplicate).length;
-      commit(acceptImport(state, p)); csv = null; preview = null; view = 'review'; render(); notify(`${count} transaction(s) imported. Confirm their classifications in review.`);
+      const added = p.candidates.filter(t => !t.duplicate);
+      commit(acceptImport(state, p)); csv = null; preview = null;
+      if (added.length) key = period(added.map(t => t.date).sort().at(-1), state.payday).key;
+      view = 'month'; render(); notify(`${count} transaction(s) added. Check the ledger totals and review any highlighted classifications.`);
     } else if (action === 'allocate') allocationDialog();
     else if (action === 'reconcile') reconciliationDialog(b.dataset.id);
     else if (action === 'remove-record') {
@@ -205,19 +221,42 @@ document.addEventListener('click', e => {
 document.addEventListener('change', async e => {
   const t = e.target;
   try {
-    if (t.id === 'period-picker' && t.value) { key = periodByKey(t.value, state.payday).key; render(); }
+    if (t.matches('[data-keep]')) {
+      const count = preview.candidates.filter((candidate, i) => !candidate.duplicate || document.querySelector(`[data-keep="${i}"]`)?.checked).length;
+      const button = document.querySelector('#accept-import');
+      button.dataset.count = String(count);
+      button.textContent = `Add ${count} transaction${count === 1 ? '' : 's'} to ledger`;
+      button.disabled = preview.errors.length > 0 || count === 0;
+    }
+    else if (t.id === 'period-picker' && t.value) { key = periodByKey(t.value, state.payday).key; render(); }
     else if (t.id === 'year-picker') { const year = Number(t.value); if (!Number.isInteger(year) || year < 1900 || year > 2200) throw new Error('Choose a year from 1900 to 2200.'); key = `${year}-01`; render(); }
     else if (t.id === 'account-filter') { accountFilter = t.value; render(); }
     else if (t.id === 'status-filter') { statusFilter = t.value; render(); }
-    else if (t.id === 'import-account') { imports.account = t.value; preview = csv?.mapping.automatic ? previewImport(state, csv, imports.account, csv.mapping, imports.convention || 'provider') : null; render(); }
-    else if (t.id === 'convention') { imports.convention = t.value; preview = csv?.mapping.automatic ? previewImport(state, csv, imports.account || 'personal', csv.mapping, imports.convention) : null; render(); }
+    else if (t.id === 'import-account') { imports.account = t.value || null; preview = csv?.mapping.automatic && imports.account ? previewImport(state, csv, imports.account, csv.mapping, imports.convention || 'provider') : null; render(); }
+    else if (t.id === 'convention') { imports.convention = t.value; preview = null; render(); }
     else if (t.dataset.map) { csv.mapping[t.dataset.map] = Number(t.value); csv.mapping.automatic = false; preview = null; render(); }
     else if (t.id === 'edit-type' || t.id === 'share-choice') syncEditor();
-    else if (t.id === 'csv-file' && t.files[0]) {
-      if (t.files[0].size > 10 * 1024 * 1024) throw new Error('CSV exceeds 10 MB. Export a smaller date range.');
-      csv = inspectCSV(await t.files[0].text()); preview = csv.mapping.automatic ? previewImport(state, csv, imports.account || 'personal', csv.mapping, imports.convention || 'provider') : null; render();
-    } else if (t.id === 'backup-file' && t.files[0]) await restore(t.files[0]);
+    else if (t.id === 'csv-file' && t.files[0]) await readCSVFile(t.files[0]);
+    else if (t.id === 'backup-file' && t.files[0]) await restore(t.files[0]);
   } catch (e) { notify(e.message, true); }
+});
+document.addEventListener('dragover', e => {
+  const drop = e.target.closest('#csv-drop');
+  if (!drop) return;
+  e.preventDefault(); drop.classList.add('is-dragging');
+});
+document.addEventListener('dragleave', e => {
+  const drop = e.target.closest('#csv-drop');
+  if (drop && !drop.contains(e.relatedTarget)) drop.classList.remove('is-dragging');
+});
+document.addEventListener('drop', async e => {
+  const drop = e.target.closest('#csv-drop');
+  if (!drop) return;
+  e.preventDefault(); drop.classList.remove('is-dragging');
+  try {
+    if (e.dataTransfer.files.length !== 1) throw new Error('Drop one CSV statement at a time.');
+    await readCSVFile(e.dataTransfer.files[0]);
+  } catch (error) { notify(error.message, true); }
 });
 document.addEventListener('input', e => {
   if (e.target.id !== 'search') return;

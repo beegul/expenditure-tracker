@@ -115,6 +115,7 @@ form > button { margin-top: 12px; }
 .file-button { display: inline-flex; font-size: 13px; align-items: center; flex-wrap: wrap; }
 .file-button input { padding: 0; border: 0; font-size: 12px; max-width: 230px; }
 .file-field { padding: 20px; border: 1px dashed #a0b6a9; border-radius: 6px; }
+.file-field.is-dragging { background: #e4efe8; border-color: var(--green); outline: 2px solid var(--green); outline-offset: 2px; }
 .file-field input { border: 0; padding: 5px 0; }
 .rule { display: flex; justify-content: space-between; gap: 20px; padding: 17px 0; border-bottom: 1px solid var(--line); }
 dialog { color: var(--ink); border: 1px solid #b3c5bd; border-radius: 12px; width: min(620px, calc(100% - 32px)); padding: 28px; box-shadow: 0 16px 55px #15352a30; max-height: 90vh; }

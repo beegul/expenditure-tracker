@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import * as d from '../src/domain.js';
 const tx = (id, overrides = {}) => ({ id, date: '2026-10-16', description: 'Example shop', accountId: 'personal', amount: -10000, type: 'purchase', share: 100, category: 'Groceries', refundOf: null, fundingReview: false, ...overrides });
 const state = (...transactions) => ({ ...d.emptyState(), transactions });
@@ -24,6 +25,8 @@ test('short months clamp each boundary independently, including leap years', () 
 });
 test('strict dates and integer GBP normalization', () => {
   assert.equal(d.dateISO('31/10/2026'), '2026-10-31');
+  assert.equal(d.dateISO('07 Oct 2026'), '2026-10-07');
+  assert.equal(d.dateISO('7 October 2026'), '2026-10-07');
   assert.throws(() => d.dateISO('31/02/2026'));
   assert.throws(() => d.dateISO('10/31/2026'));
   assert.equal(d.pennies('£1,234.50'), 123450);
@@ -57,6 +60,34 @@ test('Nationwide card metadata and blank lines are skipped to find the transacti
     ['2026-10-16', 'Home store,\nOxford', -12540],
     ['2026-10-17', 'Payment received', 5000]
   ]);
+});
+test('realistic Nationwide transaction export structure uses account metadata, sterling paid columns and preserves legitimate repeats', async () => {
+  const fixture = await readFile(new URL('../fixtures/nationwide-credit-card-metadata-synthetic.csv', import.meta.url), 'utf8');
+  const csv = d.inspectCSV(fixture, { filename: 'statement.csv' });
+  assert.equal(csv.headerLine, 5);
+  assert.equal(csv.inferredAccountId, 'credit');
+  assert.equal(csv.mapping.automatic, true);
+  assert.equal(csv.mapping.reference, -1);
+  let s = d.acceptImport(d.emptyState(), d.previewImport(d.emptyState(), csv, csv.inferredAccountId));
+  assert.equal(s.transactions.length, 3);
+  assert.deepEqual(s.transactions.map(t => [t.date, t.description, t.amount]), [
+    ['2026-10-07', 'Example market', -350],
+    ['2026-10-07', 'Example market', -350],
+    ['2026-10-08', 'Example card payment', 5000]
+  ]);
+  const overlap = d.previewImport(s, csv, csv.inferredAccountId);
+  assert.deepEqual(overlap.candidates.map(t => t.duplicate), [true, true, true]);
+  assert.equal(d.acceptImport(s, overlap).transactions.length, 3);
+  assert.equal(csv.metadata, undefined, 'account balance metadata is not copied into the import model');
+  const cardPaidColumns = d.inspectCSV('Account Name:,Nationwide Credit Card\nDate,Transactions,Paid out,Paid in\n07 Oct 2026,Example purchase,£3.50,\n08 Oct 2026,Example credit,,£1.00');
+  assert.deepEqual(d.previewImport(d.emptyState(), cardPaidColumns, 'credit').candidates.map(t => t.amount), [-350, 100]);
+});
+test('statement metadata identifies a card but never guesses current account ownership', () => {
+  const current = d.inspectCSV('Account Name:,Nationwide FlexAccount\nDate,Transactions,Paid out,Paid in\n07 Oct 2026,Example shop,3.50,');
+  assert.equal(current.inferredAccountId, null);
+  const personal = d.inspectCSV('Account Name:,Nationwide Personal Current Account\nDate,Transactions,Paid out,Paid in\n07 Oct 2026,Example shop,3.50,');
+  assert.equal(personal.inferredAccountId, 'personal');
+  assert.equal(d.inspectCSV('Date,Transactions,Amount\n07 Oct 2026,Example shop,3.50', { filename: 'amex-statement.csv' }).inferredAccountId, 'amex');
 });
 test('recognizes common header variants but leaves uncertain amount/manual references for review', () => {
   const csv = d.inspectCSV('Account Name:,Synthetic\n\nDate of Transaction,Payee,Value,Payment Reference\n16/10/2026,Example shop,12.00,PAYMENT-1');
