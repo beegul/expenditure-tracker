@@ -117,7 +117,10 @@ export function reconcile(state, reimbursementId, transactionId) {
   validateState(next); return next;
 }
 export function parseCSV(text) {
-  const rows = []; let row = [], field = '', quoted = false, closed = false;
+  return parseCSVRecords(text).map(record => record.fields);
+}
+function parseCSVRecords(text) {
+  const rows = []; let row = [], field = '', quoted = false, closed = false, line = 1, rowLine = 1;
   const input = text.replace(/^\uFEFF/, '');
   for (let i = 0; i < input.length; i++) {
     const c = input[i];
@@ -129,24 +132,69 @@ export function parseCSV(text) {
     } else if (c === ',' && !quoted) { row.push(field); field = ''; closed = false; }
     else if ((c === '\n' || c === '\r') && !quoted) {
       if (c === '\r' && input[i + 1] === '\n') i++;
-      row.push(field); if (row.some(s => s.trim())) rows.push(row); row = []; field = ''; closed = false;
+      row.push(field); if (row.some(s => s.trim())) rows.push({ fields: row, line: rowLine });
+      row = []; field = ''; closed = false; line++; rowLine = line;
     } else {
       if (closed) throw new Error('Unexpected text after closing CSV quote.');
       field += c;
+      if ((c === '\n' || c === '\r') && quoted) {
+        if (c === '\r' && input[i + 1] === '\n') { field += '\n'; i++; }
+        line++;
+      }
     }
   }
   if (quoted) throw new Error('Unclosed quote in CSV.');
-  row.push(field); if (row.some(s => s.trim())) rows.push(row);
+  row.push(field); if (row.some(s => s.trim())) rows.push({ fields: row, line: rowLine });
   if (!rows.length) throw new Error('CSV is empty.');
   return rows;
 }
-const aliases = { date: ['date', 'transaction date'], description: ['description', 'transaction description', 'details', 'merchant'], amount: ['amount', 'transaction amount'], debit: ['paid out', 'debit', 'money out'], credit: ['paid in', 'credit', 'money in'], reference: ['transaction id', 'reference', 'id'] };
+const normaliseHeader = value => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const aliases = {
+  date: ['date', 'transaction date', 'date of transaction', 'posted date', 'posting date', 'when'],
+  description: ['description', 'transaction description', 'transaction details', 'details', 'merchant', 'payee', 'narrative', 'who'],
+  amount: ['amount', 'transaction amount', 'amount gbp'],
+  debit: ['paid out', 'debit', 'money out', 'withdrawal', 'debit amount'],
+  credit: ['paid in', 'credit', 'money in', 'deposit', 'credit amount'],
+  reference: ['transaction id', 'unique transaction id', 'transaction identifier']
+};
+function mapHeaders(headers) {
+  const normalised = headers.map(normaliseHeader), mapping = {}, ambiguous = new Set();
+  for (const [name, names] of Object.entries(aliases)) {
+    const matches = normalised.flatMap((header, i) => names.includes(header) ? [i] : []);
+    mapping[name] = matches.length === 1 ? matches[0] : -1;
+    if (matches.length > 1) ambiguous.add(name);
+  }
+  return { mapping, ambiguous };
+}
 export function inspectCSV(text) {
-  const rows = parseCSV(text);
-  const found = rows.findIndex(r => r.some(c => aliases.date.includes(c.trim().toLowerCase())) && r.some(c => aliases.description.includes(c.trim().toLowerCase())));
-  const index = found < 0 ? 0 : found, headers = rows[index].map(s => s.trim()), mapping = {};
-  for (const [name, names] of Object.entries(aliases)) mapping[name] = headers.findIndex(h => names.includes(h.toLowerCase()));
-  return { headers, rows: rows.slice(index + 1), mapping, firstLine: index + 2 };
+  const records = parseCSVRecords(text);
+  const candidates = records.slice(0, 50).flatMap((record, index) => {
+    const headers = record.fields.map(s => s.trim()), { mapping, ambiguous } = mapHeaders(headers);
+    if (mapping.date < 0 || mapping.description < 0) return [];
+    const hasAmount = mapping.amount >= 0 || (mapping.debit >= 0 && mapping.credit >= 0);
+    const score = Number(hasAmount) * 10 + Number(mapping.reference >= 0) + Math.max(0, headers.length - 1) / 1000;
+    return [{ index, headers, mapping, ambiguous, score, hasAmount, line: record.line }];
+  });
+  if (!candidates.length) {
+    const first = records[0];
+    if (!first) throw new Error('CSV is empty.');
+    throw new Error('Could not find a transaction header with a date and description. Export the transactions table as CSV.');
+  }
+  candidates.sort((a, b) => b.score - a.score || a.index - b.index);
+  const selected = candidates[0];
+  const tied = candidates.filter(c => c.score === selected.score);
+  const rows = records.slice(selected.index + 1);
+  const mapping = { ...selected.mapping, automatic: selected.hasAmount && selected.ambiguous.size === 0 && tied.length === 1 };
+  return {
+    headers: selected.headers,
+    rows: rows.map(r => r.fields),
+    rowLines: rows.map(r => r.line),
+    mapping,
+    headerLine: selected.line,
+    firstLine: rows[0]?.line ?? selected.line + 1,
+    automatic: mapping.automatic,
+    candidateHeaders: tied.map(c => ({ line: c.line, headers: c.headers }))
+  };
 }
 export function previewImport(state, csv, accountId, mapping = csv.mapping, convention = 'provider') {
   const account = state.accounts.find(a => a.id === accountId);
@@ -177,7 +225,7 @@ export function previewImport(state, csv, accountId, mapping = csv.mapping, conv
       if (reference && prior && (prior.amount !== amount || prior.date !== date || merchantKey(prior.description) !== merchantKey(description))) throw new Error('Reference ID conflicts with another transaction.');
       const hinted = /payment|transfer|reimburse|salary|refund|cash|interest/i.test(description);
       candidates.push({ id: uid(), date, description, accountId, amount, type: amount < 0 && !hinted ? 'purchase' : 'unresolved-movement', share: null, category: 'Uncategorised', refundOf: null, fundingReview: false, importKey, duplicate: !!prior, occurrence, hasReference: !!reference, suggestion: suggestion(state, description) });
-    } catch (e) { errors.push({ row: csv.firstLine + i, message: e.message }); }
+    } catch (e) { errors.push({ row: csv.rowLines?.[i] ?? csv.firstLine + i, message: e.message }); }
   });
   return { candidates, errors, ambiguous: candidates.some(t => !t.hasReference) };
 }

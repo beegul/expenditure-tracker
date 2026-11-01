@@ -44,12 +44,42 @@ test('fictional Nationwide current debit/credit and preamble layout', () => {
   assert.deepEqual(p.candidates.map(t => t.amount), [-4200, 200000]);
   assert.equal(p.candidates[1].type, 'unresolved-movement');
 });
+test('Nationwide card metadata and blank lines are skipped to find the transaction table automatically', () => {
+  const csv = d.inspectCSV('\uFEFFAccount Name:,Example synthetic card\nAccount Number:,**** 1234\n\n\nTransaction Date,Card Number,Transaction Description,Amount,Payment Reference\n16/10/2026,**** 1234,"Home store,\nOxford",125.40,PMT-1\n17/10/2026,**** 1234,Payment received,-50.00,PMT-2');
+  assert.equal(csv.headerLine, 5);
+  assert.deepEqual(csv.headers, ['Transaction Date', 'Card Number', 'Transaction Description', 'Amount', 'Payment Reference']);
+  assert.equal(csv.mapping.automatic, true);
+  assert.equal(csv.mapping.reference, -1);
+  assert.deepEqual(csv.rowLines, [6, 8]);
+  const p = d.previewImport(d.emptyState(), csv, 'credit');
+  assert.equal(p.errors.length, 0);
+  assert.deepEqual(p.candidates.map(t => [t.date, t.description, t.amount]), [
+    ['2026-10-16', 'Home store,\nOxford', -12540],
+    ['2026-10-17', 'Payment received', 5000]
+  ]);
+});
+test('recognizes common header variants but leaves uncertain amount/manual references for review', () => {
+  const csv = d.inspectCSV('Account Name:,Synthetic\n\nDate of Transaction,Payee,Value,Payment Reference\n16/10/2026,Example shop,12.00,PAYMENT-1');
+  assert.equal(csv.headerLine, 3);
+  assert.equal(csv.mapping.date, 0);
+  assert.equal(csv.mapping.description, 1);
+  assert.equal(csv.mapping.reference, -1, 'payment reference must not be used as unique transaction ID');
+  assert.equal(csv.mapping.automatic, false, 'unknown Value column requires explicit mapping');
+  assert.throws(() => d.inspectCSV('Account Name:,Synthetic\nAccount Number:,**** 1234'), /Could not find a transaction header/);
+});
+test('row-level import errors point to physical CSV lines after preamble and quoted newlines', () => {
+  const csv = d.inspectCSV('Account Name:,Synthetic\n\nDate,Description,Paid out,Paid in\n16/10/2026,"Cafe\nOxford",1,\n31/02/2026,Shop,4,');
+  const p = d.previewImport(d.emptyState(), csv, 'personal');
+  assert.deepEqual(csv.rowLines, [4, 6]);
+  assert.deepEqual(p.errors.map(e => e.row), [6]);
+});
 test('fictional card provider conventions, credits, signed override, mapping', () => {
   const csv = d.inspectCSV('Date,Description,Amount\n16/10/2026,Shop,100\n17/10/2026,Refund,-20');
   for (const account of ['amex', 'credit']) assert.deepEqual(d.previewImport(d.emptyState(), csv, account).candidates.map(t => t.amount), [-10000, 2000]);
   assert.deepEqual(d.previewImport(d.emptyState(), csv, 'personal').candidates.map(t => t.amount), [10000, -2000]);
   assert.deepEqual(d.previewImport(d.emptyState(), csv, 'amex', csv.mapping, 'in-positive').candidates.map(t => t.amount), [10000, -2000]);
   const custom = d.inspectCSV('When,Who,Value\n16/10/2026,Shop,10');
+  assert.equal(custom.mapping.automatic, false);
   assert.throws(() => d.previewImport(d.emptyState(), custom, 'personal'));
   assert.equal(d.previewImport(d.emptyState(), custom, 'personal', { date: 0, description: 1, amount: 2, debit: -1, credit: -1, reference: -1 }, 'out-positive').candidates[0].amount, -1000);
 });

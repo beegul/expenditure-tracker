@@ -38,7 +38,7 @@ Ownership is fixed to prevent accidentally treating joint-paid spending as perso
 
 ## Import & review
 
-Choose **Import statements**, select the actual account and a CSV file, map columns if necessary, then build the preview. Check date, amount direction, account and duplicates against the source statement. Every row error must be fixed before import; there is no silently skipped partial import.
+Choose **Import statements**, select the actual account and a CSV file. Familiar date, description and amount columns are detected automatically; Nationwide account metadata and blank lines above the transaction table are skipped. The preview opens as soon as the columns are confidently recognised. Use **Adjust detected columns** if needed; unfamiliar or ambiguous layouts show the manual mapping fallback. Check date, amount direction, account and duplicates against the source statement. Every row error must be fixed before import; there is no silently skipped partial import.
 
 Supported layouts are deliberately explicit:
 
@@ -49,7 +49,7 @@ Supported layouts are deliberately explicit:
 | Nationwide credit / Amex | `Date, Description, Amount` | Positive purchase charge, negative credit |
 | Custom CSV | Map date, description, signed amount or debit/credit, optional genuine unique ID | Choose credits-positive or charges-positive explicitly |
 
-Aliases include Transaction Date, Transaction Description, Details, Debit, Credit, Money Out and Money In. Amount takes priority over debit/credit if both are mapped. The parser accepts comma-separated UTF-8/BOM CSV, quoted fields, escaped quotes, CRLF and multiline descriptions; dates are `DD/MM/YYYY`, `DD-MM-YYYY` or `YYYY-MM-DD`. GBP values permit two decimal places, commas, a pound symbol and parentheses for negative amounts. Zero-amount rows need investigation. A recognised header may follow statement preamble rows.
+Aliases include Transaction Date, Date of Transaction, Posted Date, Transaction Description, Transaction Details, Details, Merchant, Payee, Narrative, Debit, Credit, Money Out and Money In. Amount takes priority over debit/credit if both are mapped. Only explicitly named transaction IDs are recognised; a payment reference is never assumed unique. The parser accepts comma-separated UTF-8/BOM CSV, quoted fields, escaped quotes, CRLF and multiline descriptions; dates are `DD/MM/YYYY`, `DD-MM-YYYY` or `YYYY-MM-DD`. GBP values permit two decimal places, commas, a pound symbol and parentheses for negative amounts. Zero-amount rows need investigation. A recognised header may follow statement preamble rows.
 
 **No real bank CSV samples have been supplied or verified.** These layouts are tested with representative **synthetic** fixtures in `fixtures`. Check real exports before importing. For Excel or OFX statements, export CSV; neither Excel nor OFX is supported in v1. No historical workbook matching is attempted.
 

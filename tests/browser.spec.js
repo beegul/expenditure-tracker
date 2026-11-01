@@ -34,7 +34,7 @@ test('CSV preview, explicit sign acknowledgement, overlap reimport and review ru
   await page.goto('/'); await nav(page, 'import');
   const file = { name: 'synthetic.csv', mimeType: 'text/csv', buffer: Buffer.from('Date,Description,Amount\n16/10/2026,Example cafe,-4\n16/10/2026,Example cafe,-4') };
   await page.locator('#csv-file').setInputFiles(file);
-  await page.getByRole('button', { name: 'Build import preview' }).click();
+  await expect(page.getByRole('heading', { name: 'Transaction columns detected' })).toBeVisible();
   await expect(page.getByText('2 new · 0 overlapping · 0 errors')).toBeVisible();
   await page.locator('#import-ack').check();
   await page.getByRole('button', { name: 'Import reviewed rows' }).click();
@@ -51,12 +51,33 @@ test('CSV preview, explicit sign acknowledgement, overlap reimport and review ru
   await page.getByRole('button', { name: 'Confirm transaction' }).click();
   await expect(page.getByRole('heading', { name: 'You are all caught up' })).toBeVisible();
   await nav(page, 'import'); await page.locator('#csv-file').setInputFiles(file);
-  await page.getByRole('button', { name: 'Build import preview' }).click();
   await expect(page.getByText('0 new · 2 overlapping · 0 errors')).toBeVisible();
   await page.locator('#import-ack').check(); await page.getByRole('button', { name: 'Import reviewed rows' }).click();
   const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), STORAGE_KEY);
   expect(saved.transactions).toHaveLength(2); expect(saved.rules).toHaveLength(1);
   await page.reload(); await nav(page, 'settings'); await expect(page.getByText('example cafe', { exact: true })).toBeVisible();
+});
+test('Nationwide card metadata is skipped and familiar columns preview automatically', async ({ page }) => {
+  await page.goto('/'); await nav(page, 'import');
+  await page.locator('#import-account').selectOption('credit');
+  const file = { name: 'nationwide-card-synthetic.csv', mimeType: 'text/csv', buffer: Buffer.from('Account Name:,Example synthetic card\nAccount Number:,**** 1234\n\n\nTransaction Date,Card Number,Transaction Description,Amount,Payment Reference\n16/10/2026,**** 1234,Example furniture,45.00,PAYMENT-1\n17/10/2026,**** 1234,Example repayment,-20.00,PAYMENT-2') };
+  await page.locator('#csv-file').setInputFiles(file);
+  await expect(page.getByRole('heading', { name: 'Transaction columns detected' })).toBeVisible();
+  await expect(page.getByText('Found the transaction table on row 5')).toBeVisible();
+  await expect(page.getByText('2 new · 0 overlapping · 0 errors')).toBeVisible();
+  await expect(page.getByText('-£45.00', { exact: true })).toBeVisible();
+  await expect(page.getByText('£20.00', { exact: true })).toBeVisible();
+  await expect(page.getByText('PAYMENT-1', { exact: false })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Map columns' })).toHaveCount(0);
+});
+test('unknown amount headings retain a clear manual column-mapping fallback', async ({ page }) => {
+  await page.goto('/'); await nav(page, 'import');
+  await page.locator('#csv-file').setInputFiles({ name: 'custom.csv', mimeType: 'text/csv', buffer: Buffer.from('Date,Description,Value\n16/10/2026,Example cafe,4.00') });
+  await expect(page.getByRole('heading', { name: 'Check transaction columns' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Build import preview' })).toBeVisible();
+  await page.locator('[data-map=amount]').selectOption('2');
+  await page.getByRole('button', { name: 'Build import preview' }).click();
+  await expect(page.getByText('1 new · 0 overlapping · 0 errors')).toBeVisible();
 });
 test('manual split purchase, reimbursement allocation and imported transfer reconciliation', async ({ page }) => {
   await page.goto('/'); await page.getByRole('button', { name: '+ Add transaction', exact: true }).click();
@@ -74,7 +95,8 @@ test('manual split purchase, reimbursement allocation and imported transfer reco
   await expect(page.locator('tbody').getByText('£30.00', { exact: true })).toHaveCount(2);
   await nav(page, 'import');
   await page.locator('#csv-file').setInputFiles({ name: 'transfer.csv', mimeType: 'text/csv', buffer: Buffer.from('Date,Description,Amount\n01/11/2026,Joint reimbursement,30.00') });
-  await page.getByRole('button', { name: 'Build import preview' }).click();
+  await expect(page.getByRole('heading', { name: 'Transaction columns detected' })).toBeVisible();
+  await expect(page.getByText('1 new · 0 overlapping · 0 errors')).toBeVisible();
   await page.locator('#import-ack').check(); await page.getByRole('button', { name: 'Import reviewed rows' }).click();
   await nav(page, 'settlement'); await page.getByRole('button', { name: 'Link imported transfer' }).click();
   await page.getByRole('button', { name: 'Link transfer', exact: true }).click();
